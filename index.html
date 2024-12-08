@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <!-- axios -->
+    <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
+
+    <title>HỌC CÁCH REFRESH TOKEN</title>
+</head>
+<body>
+    <button id="_login">LOGIN</button>
+    <button id="_getList">GET LIST</button>
+
+    <script>
+        // tạo axios config: https://axios-http.com/docs/config_defaults
+        const instance = axios.create({
+            baseURL: '/api', // là cái tiền tố ví dự https:/localhost:3000/api
+            timeOut: 3 * 1000,// mili giây
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        });
+
+        // lưu token vào localStorage
+        instance.setLocalAccessToken = async ({token, timeExpired}) => {
+            // lưu vào localStorage thì nên chuyển về Object cho nhẹ
+            window.localStorage.setItem('accessToken', JSON.stringify({
+                token, timeExpired
+            }))
+        }
+
+        // lấy token đã lưu vào localStorage
+        instance.getLocalAccessToken = async (tokenName) => {
+            // lưu vào localStorage thì nên chuyển về Object cho nhẹ
+            const accessTokenJson = window.localStorage.getItem(tokenName);
+            const { token, timeExpired } = JSON.parse(accessTokenJson);
+            return {token, timeExpired};
+        }
+
+        // trước khi gọi request từ client xuống server => kiểm tra accessToken
+        // config là những biến được nằm trong instance
+        instance.interceptors.request.use( async (config) => {
+                console.log(`Trước khi request:::ping`);
+                // không cần kiểm tra Access Token với 2 router /api/login và /api/refreshToken
+                if(config.url.indexOf('/login') >= 0 || config.url.indexOf('/refreshToken') >= 0) {
+                    return config;
+                }
+                
+                const { token, timeExpired }= await instance.getLocalAccessToken('accessToken');
+
+                const nowTime = new Date().getTime(); // thời gian hiện tại
+                
+                // accessToken hết hạn
+                if(timeExpired < nowTime) {
+                    try {
+                        console.log(`AccessToken hết hạn ::: `);
+                        const { status, element: { 
+                            token, timeExpired
+                        }} = await refreshTokenFunc();
+                        
+                        // lưu access Token mới vào localStorage
+                        if(status === 'success') {
+                            // set token và time vào localStorage
+                            instance.setLocalAccessToken({token, timeExpired});
+                        }
+
+                    }
+                    catch (error) {
+                        return Promise.reject(error);
+                    }
+                }
+
+                return config;
+            },
+            (error) => {
+                return Promise.reject(error);
+            }
+        );
+
+        // sau khi sever response lại dữ liệu
+        instance.interceptors.response.use( (response) => {
+                console.log(`Sau khi request:::ping`);
+                return response;
+            },
+            (error) => {
+                return Promise.reject(error);
+            }
+        );
+
+        // Đăng nhập
+        // [GET] /api/login
+        const loginFunc = async () => {
+            // vì instance bên trên đã có tiền tố /api nên không cần đặt thêm => đường dẫn '/api/login'
+            return (await instance.get('/login')).data;
+        }
+
+        const buttonLogin = document.querySelector("#_login");
+        if(buttonLogin) {
+            buttonLogin.addEventListener("click", async event => {
+                let {status, element: {
+                    token,
+                    timeExpired
+                }} = await loginFunc();
+                
+                if(status === 'success') {
+                    // set token và time vào localStorage
+                    instance.setLocalAccessToken({token, timeExpired});
+                }
+            });
+        }
+        // HẾT Đăng nhập
+
+        // get List User
+        // [GET] /api/user
+        const getUserFunc = async () => {
+            return (await instance.get('/user')).data;
+        }
+
+        const buttonGetList = document.querySelector('#_getList');
+        if(buttonGetList) {
+            buttonGetList.addEventListener('click', async (event) => {
+                const { status, element } = await getUserFunc();
+                console.log(element);
+            });
+        }
+        // hết get List User
+
+
+        // dùng để refreshToken
+        // [GET] /api/refreshToken
+        async function refreshTokenFunc() {
+            return (await instance.get('/refreshToken')).data;
+        }
+    </script>
+</body>
+</html>
